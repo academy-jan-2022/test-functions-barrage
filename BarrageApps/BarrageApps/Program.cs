@@ -5,11 +5,11 @@ using Flurl.Http;
 using Polly;
 using Polly.Retry;
 
-var requests = await Enumerable.Range(0, 150)
+var requests = await Enumerable.Range(0, 5000)
     .Select<int, Func<Task<(Guid id, int expected)>>>(
         number => async () => await Functions.Initiate(number % 12)()
     )
-    .Parallel(25);
+    .Parallel(15);
 
 Console.WriteLine("Checking results");
 
@@ -17,7 +17,7 @@ var results = await requests
         .Select<(Guid id, int expected), Func<Task<(bool isSuccessful, string? message)>>>(
             tuple => async () => await Functions.Check(tuple.id, tuple.expected)()
         )
-        .Parallel(50);
+        .Parallel(25);
 
 var successCount = results.Count(r => r.isSuccessful);
 var failures = results.Where(r => !r.isSuccessful).Select(r => r.message);
@@ -39,7 +39,7 @@ public static class Functions
     private static readonly AsyncRetryPolicy RetryPolicy = Policy
         .Handle<Exception>()
         .WaitAndRetryAsync(
-            10,
+            20,
             count => TimeSpan.FromSeconds((double)count / 2)
         );
 
