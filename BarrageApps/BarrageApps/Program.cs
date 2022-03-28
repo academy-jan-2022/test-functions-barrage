@@ -1,24 +1,23 @@
 ﻿// See https://aka.ms/new-console-template for more information
 
-using System.Linq;
 using DeFuncto.Extensions;
 using Flurl.Http;
 using Polly;
 using Polly.Retry;
 
-var requests = await Enumerable.Range(0, 1000)
+var requests = await Enumerable.Range(0, 150)
     .Select<int, Func<Task<(Guid id, int expected)>>>(
         number => async () => await Functions.Initiate(number % 12)()
     )
     .Parallel(25);
 
-Console.WriteLine($"Checking results");
+Console.WriteLine("Checking results");
 
 var results = await requests
         .Select<(Guid id, int expected), Func<Task<(bool isSuccessful, string? message)>>>(
             tuple => async () => await Functions.Check(tuple.id, tuple.expected)()
         )
-        .Parallel(30);
+        .Parallel(50);
 
 var successCount = results.Count(r => r.isSuccessful);
 var failures = results.Where(r => !r.isSuccessful).Select(r => r.message);
@@ -73,7 +72,7 @@ public static class Functions
             }
             catch (Exception exception)
             {
-                return (false, exception.Message);
+                return (false, $"For id {id} with expectation: {expected} failed with message: \n{exception.Message}");
             }
         };
 }
