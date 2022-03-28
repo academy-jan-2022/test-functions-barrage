@@ -1,16 +1,33 @@
 ﻿// See https://aka.ms/new-console-template for more information
 
+using System.Linq;
+using DeFuncto.Extensions;
 using Flurl.Http;
 using Polly;
 using Polly.Retry;
 
+var requests = await Enumerable.Range(0, 1000)
+    .Select<int, Func<Task<(Guid id, int expected)>>>(
+        number => async () => await Functions.Initiate(number % 12)()
+    )
+    .Parallel(25);
 
-var (id, expected) = await Functions.Initiate(8)();
-var (isMatch, error) = await Functions.Check(id, expected)();
-if (isMatch)
-    Console.WriteLine("Success");
-else
-    Console.WriteLine($"Failed {error}");
+Console.WriteLine($"Checking results");
+
+var results = await requests
+        .Select<(Guid id, int expected), Func<Task<(bool isSuccessful, string? message)>>>(
+            tuple => async () => await Functions.Check(tuple.id, tuple.expected)()
+        )
+        .Parallel(30);
+
+var successCount = results.Count(r => r.isSuccessful);
+var failures = results.Where(r => !r.isSuccessful).Select(r => r.message);
+
+Console.WriteLine($"{successCount} operations were successful");
+foreach (var failure in failures)
+{
+    Console.WriteLine($"Failure: {failure}");
+}
 
 public static class Values
 {
@@ -20,15 +37,15 @@ public static class Values
 
 public static class Functions
 {
-    private static readonly AsyncRetryPolicy retryPolicy = Policy
+    private static readonly AsyncRetryPolicy RetryPolicy = Policy
         .Handle<Exception>()
         .WaitAndRetryAsync(
-            15,
-            count => TimeSpan.FromSeconds(count)
+            10,
+            count => TimeSpan.FromSeconds((double)count / 2)
         );
 
     public static Func<Task<(Guid id, int expected)>> Initiate(int number) =>
-        async () => await retryPolicy.ExecuteAsync(async () =>
+        async () => await RetryPolicy.ExecuteAsync(async () =>
         {
             var expected = number * number;
             var payload = new Request(number);
@@ -42,9 +59,8 @@ public static class Functions
         {
             try
             {
-                return await retryPolicy.ExecuteAsync(async () =>
+                return await RetryPolicy.ExecuteAsync(async () =>
                 {
-                    Console.WriteLine("Checking");
                     var url = $"{Values.FileUrl}{id}";
                     var result = await url.GetAsync();
                     var number = await result.GetStringAsync();
